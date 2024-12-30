@@ -1,8 +1,8 @@
+# import asyncio
+# import sqlite3
 # from aiogram import Bot, Dispatcher, types
-# from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-# from aiogram.fsm.state import State, StatesGroup
-# from aiogram.fsm.context import FSMContext
-# import random
+# from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+# from aiogram.filters import Command
 # import asyncio, logging
 # from config import my_token
 
@@ -12,158 +12,92 @@
 
 # dp = Dispatcher()
 
-# class OrderState(StatesGroup):
-#     waiting_for_category = State()
-#     waiting_for_name = State()
-#     waiting_for_address = State()
-#     waiting_for_details = State()
+# def init_db():
+#     conn = sqlite3.connect("orders.db")
+#     cursor = conn.cursor()
+#     cursor.execute('''CREATE TABLE IF NOT EXISTS orders (
+#                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                         category TEXT,
+#                         username TEXT,
+#                         address TEXT,
+#                         description TEXT,
+#                         status TEXT DEFAULT 'Заказ принят.'
+#                     )''')
+#     conn.commit()
+#     conn.close()
 
-# orders = {}
+# init_db()
 
-# category_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-#     [InlineKeyboardButton("Еда", callback_data="category_food")],
-#     [InlineKeyboardButton("Запчасти", callback_data="category_parts")],
-#     [InlineKeyboardButton("Мебель", callback_data="category_furniture")]
-# ])
+# def get_category_keyboard():
+#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+#         [InlineKeyboardButton(text="🍔 Еда", callback_data="category:Еда")],
+#         [InlineKeyboardButton(text="🔧 Запчасти", callback_data="category:Запчасти")],
+#         [InlineKeyboardButton(text="🪑 Мебель", callback_data="category:Мебель")],
+#     ])
+#     return keyboard
 
-# @dp.message_handler(commands="start")
+# temp_data = {}
+
+# @dp.message(Command("start"))
 # async def start_command(message: types.Message):
 #     await message.answer(
-#         "Привет! Выберите категорию заказа:",
-#         reply_markup=category_keyboard
+#         "Привет! Готовы оформить заказ? Просто выберите одну из категорий ниже:",
+#         reply_markup=get_category_keyboard()
 #     )
-#     await OrderState.waiting_for_category.set()
 
-# @dp.callback_query_handler(state=OrderState.waiting_for_category)
-# async def category_selected(callback_query: types.CallbackQuery, state: FSMContext):
-#     await state.update_data(category=callback_query.data)
-#     await callback_query.message.answer("Введите ваше имя:")
-#     await OrderState.waiting_for_name.set()
+# @dp.callback_query(lambda c: c.data.startswith("category:"))
+# async def select_category(callback_query: types.CallbackQuery):
+#     category = callback_query.data.split(":")[1]
+#     temp_data[callback_query.from_user.id] = {"category": category}
+#     await bot.send_message(callback_query.from_user.id, "Отлично! Как вас зовут?")
 
-# @dp.message_handler(state=OrderState.waiting_for_name)
-# async def name_received(message: types.Message, state: FSMContext):
-#     await state.update_data(name=message.text)
-#     await message.answer("Введите адрес доставки:")
-#     await OrderState.waiting_for_address.set()
+# @dp.message(lambda message: message.from_user.id in temp_data and "username" not in temp_data[message.from_user.id])
+# async def get_username(message: types.Message):
+#     temp_data[message.from_user.id]["username"] = message.text
+#     await message.answer("Теперь укажите адрес доставки:")
 
-# @dp.message_handler(state=OrderState.waiting_for_address)
-# async def address_received(message: types.Message, state: FSMContext):
-#     await state.update_data(address=message.text)
-#     await message.answer("Введите дополнительную информацию (например, что заказать):")
-#     await OrderState.waiting_for_details.set()
+# @dp.message(lambda message: message.from_user.id in temp_data and "address" not in temp_data[message.from_user.id])
+# async def get_address(message: types.Message):
+#     temp_data[message.from_user.id]["address"] = message.text
+#     await message.answer("Опишите, что вам нужно заказать:")
 
-# @dp.message_handler(state=OrderState.waiting_for_details)
-# async def details_received(message: types.Message, state: FSMContext):
-#     user_data = await state.get_data()
-#     order_id = random.randint(1000, 9999)
-#     orders[order_id] = {
-#         "category": user_data["category"],
-#         "name": user_data["name"],
-#         "address": user_data["address"],
-#         "details": message.text,
-#         "status": "Заказ принят."
-#     }
-#     await message.answer(f"Ваш заказ принят! Номер заказа: {order_id}")
-#     await state.finish()
+# @dp.message(lambda message: message.from_user.id in temp_data and "description" not in temp_data[message.from_user.id])
+# async def get_description(message: types.Message):
+#     user_data = temp_data[message.from_user.id]
+#     user_data["description"] = message.text
 
-# @dp.message_handler(commands="status")
+#     conn = sqlite3.connect("orders.db")
+#     cursor = conn.cursor()
+#     cursor.execute('''INSERT INTO orders (category, username, address, description) 
+#                       VALUES (?, ?, ?, ?)''',
+#                    (user_data["category"], user_data["username"], user_data["address"], user_data["description"]))
+#     order_id = cursor.lastrowid
+#     conn.commit()
+#     conn.close()
+
+#     del temp_data[message.from_user.id]
+#     await message.answer(f"Поздравляю! Ваш заказ успешно оформлен. Номер заказа: {order_id}. Ожидайте подтверждения!")
+
+# @dp.message(Command("status"))
+# async def check_status_command(message: types.Message):
+#     await message.answer("Пожалуйста, введите номер вашего заказа, чтобы узнать его статус:")
+
+# @dp.message(lambda message: message.text.isdigit())
 # async def check_status(message: types.Message):
-#     try:
-#         order_id = int(message.text.split()[1])
-#         if order_id in orders:
-#             await message.answer(f"Статус заказа {order_id}: {orders[order_id]['status']}")
-#         else:
-#             await message.answer("Заказ с таким номером не найден.")
-#     except (IndexError, ValueError):
-#         await message.answer("Пожалуйста, введите команду в формате: /status <номер заказа>")
+#     order_id = int(message.text)
+#     conn = sqlite3.connect("orders.db")
+#     cursor = conn.cursor()
+#     cursor.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+#     result = cursor.fetchone()
+#     conn.close()
 
-# # if __name__ == "__main__":
-# #     executor.start_polling(dp, skip_updates=True)
+#     if result:
+#         await message.answer(f"Статус вашего заказа: {result[0]}")
+#     else:
+#         await message.answer("Увы, заказ с таким номером не найден. Попробуйте еще раз.")
 
 # async def main():
 #     await dp.start_polling(bot)
 
-# asyncio.run(main())
-# from aiogram import Bot, Dispatcher, types
-# from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-# from aiogram.fsm.state import State, StatesGroup
-# from aiogram.fsm.context import FSMContext
-# import random
-# import asyncio
-# import logging
-# from config import my_token
-
-# logging.basicConfig(level=logging.INFO)
-
-# bot = Bot(token=my_token)
-# dp = Dispatcher()
-
-# class OrderState(StatesGroup):
-#     waiting_for_category = State()
-#     waiting_for_name = State()
-#     waiting_for_address = State()
-#     waiting_for_details = State()
-
-# orders = {}
-
-# category_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-#     [InlineKeyboardButton("Еда", callback_data="category_food")],
-#     [InlineKeyboardButton("Запчасти", callback_data="category_parts")],
-#     [InlineKeyboardButton("Мебель", callback_data="category_furniture")]
-# ])
-
-# @dp.message_handler(commands="start")
-# async def start_command(message: types.Message):
-#     await message.answer(
-#         "Привет! Выберите категорию заказа:",
-#         reply_markup=category_keyboard
-#     )
-#     await OrderState.waiting_for_category.set()
-
-# @dp.callback_query_handler(state=OrderState.waiting_for_category)
-# async def category_selected(callback_query: types.CallbackQuery, state: FSMContext):
-#     await state.update_data(category=callback_query.data)
-#     await callback_query.message.answer("Введите ваше имя:")
-#     await OrderState.waiting_for_name.set()
-
-# @dp.message_handler(state=OrderState.waiting_for_name)
-# async def name_received(message: types.Message, state: FSMContext):
-#     await state.update_data(name=message.text)
-#     await message.answer("Введите адрес доставки:")
-#     await OrderState.waiting_for_address.set()
-
-# @dp.message_handler(state=OrderState.waiting_for_address)
-# async def address_received(message: types.Message, state: FSMContext):
-#     await state.update_data(address=message.text)
-#     await message.answer("Введите дополнительную информацию (например, что заказать):")
-#     await OrderState.waiting_for_details.set()
-
-# @dp.message_handler(state=OrderState.waiting_for_details)
-# async def details_received(message: types.Message, state: FSMContext):
-#     user_data = await state.get_data()
-#     order_id = random.randint(1000, 9999)
-#     orders[order_id] = {
-#         "category": user_data["category"],
-#         "name": user_data["name"],
-#         "address": user_data["address"],
-#         "details": message.text,
-#         "status": "Заказ принят."
-#     }
-#     await message.answer(f"Ваш заказ принят! Номер заказа: {order_id}")
-#     await state.finish()
-
-# @dp.message_handler(commands="status")
-# async def check_status(message: types.Message):
-#     try:
-#         order_id = int(message.text.split()[1])
-#         if order_id in orders:
-#             await message.answer(f"Статус заказа {order_id}: {orders[order_id]['status']}")
-#         else:
-#             await message.answer("Заказ с таким номером не найден.")
-#     except (IndexError, ValueError):
-#         await message.answer("Пожалуйста, введите команду в формате: /status <номер заказа>")
-
-# async def main():
-#     await dp.start_polling(bot)
-
-# asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())
